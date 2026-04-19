@@ -22,6 +22,9 @@ pipeline {
     harborCredentials = "jenkins_user"
     appTag            = createTag()
     appImageURL       = "${harborURL}/${harborNS}/${appName}:${appTag}"
+    gitopsURL         = "https://github.com/depp927/one-docs-gitops.git"
+    gitopsCredentials = "depp927_github"
+    gitopsOverlay     = "overlays/dev"
   }
 
   stages {
@@ -65,11 +68,47 @@ ENTRYPOINT ["node", "server.js"]
             passwordVariable: 'HARBOR_PASS'
           )]) {
             sh """
-              docker login ${harborURL} -u ${HARBOR_USER} -p ${HARBOR_PASS}
+              docker login ${harborURL} -u \${HARBOR_USER} -p \${HARBOR_PASS}
               docker build -t ${appImageURL} .
               docker push ${appImageURL}
               docker rmi ${appImageURL}
               docker logout ${harborURL}
+            """
+          }
+        }
+      }
+    }
+
+    stage("Update GitOps Repo") {
+      steps {
+        script {
+          withCredentials([usernamePassword(
+            credentialsId: gitopsCredentials,
+            usernameVariable: 'GIT_USER',
+            passwordVariable: 'GIT_PASS'
+          )]) {
+            sh """
+              # 清理上次残留
+              rm -rf gitops-repo
+
+              # 克隆 GitOps 仓库
+              git clone https://\${GIT_USER}:\${GIT_PASS}@${gitopsURL.replace('https://', '')} gitops-repo
+
+              cd gitops-repo/${gitopsOverlay}
+
+              # 用 kustomize 更新镜像 tag（只修改 kustomization.yaml）
+              kustomize edit set image ${harborURL}/${harborNS}/${appName}:${appTag}
+
+              # 提交并推送
+              git config user.email "jenkins@ci.local"
+              git config user.name "Jenkins CI"
+              git add kustomization.yaml
+              git commit -m "ci: update ${appName} image to ${appTag} [skip ci]"
+              git push origin main
+
+              # 清理
+              cd ../..
+              rm -rf gitops-repo
             """
           }
         }
