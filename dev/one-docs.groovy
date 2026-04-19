@@ -14,7 +14,7 @@ pipeline {
     appName = "one-docs"
     gitURL = "https://github.com/depp927/one-docs.git"
     gitBranch = "main"
-    buildImage = "arbor.onepoker.cc/dev/node:20-alpine"
+    buildImage = "harbor.onepoker.cc/dev/node:20-alpine"
     baseImage = "harbor.onepoker.cc/dev/node:20-alpine"
     appServerPort = "8090"
     pullImageCredentials = "harbor-img"
