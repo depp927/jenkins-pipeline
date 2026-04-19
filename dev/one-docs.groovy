@@ -11,18 +11,17 @@ pipeline {
   }
 
   environment {
-    appName            = "one-docs"
-    gitURL             = "https://github.com/depp927/one-docs.git"
-    gitBranch          = "main"
-    baseImage          = "harbor.onepoker.cc/dev/node:20-alpine"
-    appServerPort      = "8090"
-    gitCredentials     = "depp927_github"
-    harborURL          = "https://harbor.onepoker.cc"
-    harborHost         = "harbor.onepoker.cc"
-    harborNS           = "dev"
-    harborCredentials  = "jenkins_user"
-    appTag             = createTag()
-    appImageURL        = "${harborHost}/${harborNS}/${appName}:${appTag}"
+    appName           = "one-docs"
+    gitURL            = "https://github.com/depp927/one-docs.git"
+    gitBranch         = "main"
+    baseImage         = "harbor.onepoker.cc/dev/node:20-alpine"
+    appServerPort     = "8090"
+    gitCredentials    = "depp927_github"
+    harborURL         = "harbor.onepoker.cc"
+    harborNS          = "dev"
+    harborCredentials = "jenkins_user"
+    appTag            = createTag()
+    appImageURL       = "${harborURL}/${harborNS}/${appName}:${appTag}"
   }
 
   stages {
@@ -40,9 +39,7 @@ pipeline {
         script {
           env.gitHash = sh(script: "git rev-parse HEAD", returnStdout: true).trim()
 
-          // 内嵌 Dockerfile：多阶段构建，安装依赖 → 精简运行镜像
-          def mDockerfile = """
-FROM ${baseImage} AS builder
+          def mDockerfile = """FROM ${baseImage} AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --only=production
@@ -60,14 +57,19 @@ EXPOSE ${appServerPort}
 ENTRYPOINT ["node", "server.js"]
 """
 
-          docker.withRegistry(harborURL, harborCredentials) {
+          writeFile file: 'Dockerfile', text: mDockerfile
+
+          withCredentials([usernamePassword(
+            credentialsId: harborCredentials,
+            usernameVariable: 'HARBOR_USER',
+            passwordVariable: 'HARBOR_PASS'
+          )]) {
             sh """
-              cat > Dockerfile << 'DOCKERFILE_EOF'
-${mDockerfile}
-DOCKERFILE_EOF
+              docker login ${harborURL} -u ${HARBOR_USER} -p ${HARBOR_PASS}
               docker build -t ${appImageURL} .
               docker push ${appImageURL}
               docker rmi ${appImageURL}
+              docker logout ${harborURL}
             """
           }
         }
@@ -78,9 +80,7 @@ DOCKERFILE_EOF
   post {
     always {
       script {
-        wrap([$class: 'BuildUser']) {
-          currentBuild.displayName = "#${BUILD_NUMBER} ${BUILD_USER}"
-        }
+        currentBuild.displayName = "#${BUILD_NUMBER} [${appName}:${appTag}]"
       }
     }
   }
