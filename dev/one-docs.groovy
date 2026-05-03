@@ -16,7 +16,7 @@ pipeline {
     gitBranch         = "main"
     baseImage         = "harbor.onepoker.cc/dev/node:20-alpine"
     appServerPort     = "8090"
-    gitCredentials    = "depp927_github"
+    gitCredentials    = "depp927-githubtoken"
     harborURL         = "harbor.onepoker.cc"
     harborNS          = "dev"
     harborCredentials = "jenkins_user"
