@@ -1,0 +1,5 @@
+apps:
+  one-docs:
+    repo_url: "https://github.com/depp927/one-docs.git"
+    language: "node"
+    gitops_repo: "https://github.com/depp927/one-docs-gitops"
