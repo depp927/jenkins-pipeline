@@ -81,7 +81,7 @@ pipeline {
                 script {
                     dir('source_code') {
                         // 使用你定义的 awsecr 凭据映射为 AWS CLI 识别的环境变量
-                        withCredentials([awsCredentials(
+                        withCredentials([usernamePassword(
                             credentialsId: env.ECR_CREDENTIALS,
                             usernameVariable: 'AWS_ACCESS_KEY_ID',
                             passwordVariable: 'AWS_SECRET_ACCESS_KEY'
