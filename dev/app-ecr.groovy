@@ -18,7 +18,7 @@ pipeline {
     environment {
         // AWS ECR 基础配置
         AWS_REGION        = "ap-east-1"
-        ECR_REGISTRY      = "390402568976.dkr.ecr.ap-east-1.amazonaws.com"
+        ECR_REGISTRY      = "390402568976.dkr.ecr.ap-east-1.amazonaws.com/dev"
         ECR_CREDENTIALS   = "awsecr" // 你指定的 AK/SK 凭据 ID
         
         // Git 配置
