@@ -5,9 +5,9 @@ def createTag() {
 pipeline {
     agent any
 
+    // 自动读取 apps.yaml 生成下拉菜单（第一次运行后生效）
     parameters {
-        // 构建时手动选择应用名，或通过 Webhook 自动传入
-        string(name: 'SELECT_APP_NAME', defaultValue: 'one-docs', description: '请输入应用名称')
+        choice(name: 'SELECT_APP_NAME', choices: [], description: '请选择应用名称')
     }
 
     options {
@@ -16,10 +16,12 @@ pipeline {
     }
 
     environment {
-        // 全局基础配置
-        harborURL         = "390402568976.dkr.ecr.ap-east-1.amazonaws.com/dev/one-docs"
-        harborNS          = "dev"
-        harborCredentials = "awsecr"
+        // AWS ECR 基础配置
+        AWS_REGION        = "ap-east-1"
+        ECR_REGISTRY      = "390402568976.dkr.ecr.ap-east-1.amazonaws.com"
+        ECR_CREDENTIALS   = "awsecr" // 你指定的 AK/SK 凭据 ID
+        
+        // Git 配置
         gitBranch         = "main"
         gitCredentials    = "depp927-githubtoken"
         gitopsCredentials = "depp927-githubtoken"
@@ -28,33 +30,44 @@ pipeline {
     }
 
     stages {
-        stage("Initialize Metadata") {
+        stage("Initialize & Dynamic Params") {
             steps {
                 script {
-                    // 1. 读取运维维护的配置清单 (请确保该文件在执行前已存在于 workspace)
+                    // 1. 读取 YAML 元数据以更新参数列表和获取应用配置
                     def catalog = readYaml file: 'appmeta/apps.yaml'
-                    def appConfig = catalog.apps[params.SELECT_APP_NAME]
+                    def appNames = catalog.apps.keySet().collect { it.toString() }
+                    
+                    // 动态更新 Jenkins 参数（下一次构建时将出现下拉列表）
+                    properties([
+                        parameters([
+                            choice(name: 'SELECT_APP_NAME', choices: appNames, description: '请选择应用名称')
+                        ])
+                    ])
+
+                    // 如果是第一次运行或手动触发，确保有默认选值
+                    def selectedApp = params.SELECT_APP_NAME ?: appNames[0]
+                    def appConfig = catalog.apps[selectedApp]
 
                     if (!appConfig) {
-                        error "应用 [${params.SELECT_APP_NAME}] 未在 apps.yaml 中定义！"
+                        error "应用 [${selectedApp}] 未在 apps.yaml 中定义！"
                     }
 
                     // 2. 注入动态环境变量
-                    env.appName     = params.SELECT_APP_NAME
+                    env.appName     = selectedApp
                     env.gitURL      = appConfig.repo_url
                     env.gitopsURL   = appConfig.gitops_repo
-                    env.appImageURL = "${env.harborURL}/${env.harborNS}/${env.appName}:${env.appTag}"
+                    // ECR 标准镜像格式：Registry/Repository:Tag
+                    env.appImageURL = "${env.ECR_REGISTRY}/${selectedApp}:${env.appTag}"
 
                     echo "--- Metadata Loaded ---"
                     echo "App Name: ${env.appName}"
-                    echo "Git URL:  ${env.gitURL}"
+                    echo "Image URL: ${env.appImageURL}"
                 }
             }
         }
 
         stage("Pull Code") {
             steps {
-                // 将代码拉取到 source_code 目录，避免与运维配置目录冲突
                 dir('source_code') {
                     git url: env.gitURL,
                         credentialsId: env.gitCredentials,
@@ -63,30 +76,32 @@ pipeline {
             }
         }
 
-        stage("Build & Push Image") {
+        stage("Build & Push to ECR") {
             steps {
                 script {
-                    // 进入业务代码目录执行构建，此时会读取该目录下的 Dockerfile
                     dir('source_code') {
-                        env.gitHash = sh(script: "git rev-parse HEAD", returnStdout: true).trim()
-
+                        // 使用你定义的 awsecr 凭据映射为 AWS CLI 识别的环境变量
                         withCredentials([usernamePassword(
-                            credentialsId: env.harborCredentials,
-                            usernameVariable: 'HARBOR_USER',
-                            passwordVariable: 'HARBOR_PASS'
+                            credentialsId: env.ECR_CREDENTIALS,
+                            usernameVariable: 'AWS_ACCESS_KEY_ID',
+                            passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                         )]) {
                             sh """
-                                # 检查 Dockerfile 是否存在
+                                # 检查 Dockerfile
                                 if [ ! -f Dockerfile ]; then
-                                    echo "Error: Dockerfile not found in repository root!"
+                                    echo "Error: Dockerfile not found!"
                                     exit 1
                                 fi
 
-                                docker login ${env.harborURL} -u \${HARBOR_USER} -p \${HARBOR_PASS}
+                                # ECR 登录：使用 AWS CLI 获取临时 Token 并传给 Docker
+                                aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${env.ECR_REGISTRY}
+                                
+                                # 构建与推送
                                 docker build -t ${env.appImageURL} .
                                 docker push ${env.appImageURL}
+                                
+                                # 清理本地镜像
                                 docker rmi ${env.appImageURL}
-                                docker logout ${env.harborURL}
                             """
                         }
                     }
@@ -108,17 +123,14 @@ pipeline {
                             
                             cd gitops-repo/${env.gitopsOverlay}
                             
-                            # 确保已安装 kustomize
-                            kustomize edit set image ${env.harborURL}/${env.harborNS}/${env.appName}:${env.appTag}
+                            # 更新 Kustomize 镜像配置
+                            kustomize edit set image ${env.appImageURL}
                             
                             git config user.email "jenkins@ci.local"
                             git config user.name "Jenkins CI"
                             git add kustomization.yaml
                             git commit -m "ci: update ${env.appName} image to ${env.appTag} [skip ci]"
                             git push origin main
-                            
-                            cd ../..
-                            rm -rf gitops-repo
                         """
                     }
                 }
@@ -129,8 +141,8 @@ pipeline {
     post {
         always {
             script {
-                def displayTag = env.appTag ?: "unknown"
-                currentBuild.displayName = "#${BUILD_NUMBER} [${params.SELECT_APP_NAME}:${displayTag}]"
+                def displayApp = params.SELECT_APP_NAME ?: "init"
+                currentBuild.displayName = "#${BUILD_NUMBER} [${displayApp}:${env.appTag}]"
             }
         }
     }
