@@ -81,7 +81,7 @@ pipeline {
                 script {
                     dir('source_code') {
                         // 使用你定义的 awsecr 凭据映射为 AWS CLI 识别的环境变量
-                        withCredentials([usernamePassword(
+                        withCredentials([awsCredentials(
                             credentialsId: env.ECR_CREDENTIALS,
                             usernameVariable: 'AWS_ACCESS_KEY_ID',
                             passwordVariable: 'AWS_SECRET_ACCESS_KEY'
@@ -92,14 +92,11 @@ pipeline {
                                     echo "Error: Dockerfile not found!"
                                     exit 1
                                 fi
-
                                 # ECR 登录：使用 AWS CLI 获取临时 Token 并传给 Docker
                                 aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${env.ECR_REGISTRY}
-                                
                                 # 构建与推送
                                 docker build -t ${env.appImageURL} .
                                 docker push ${env.appImageURL}
-                                
                                 # 清理本地镜像
                                 docker rmi ${env.appImageURL}
                             """
