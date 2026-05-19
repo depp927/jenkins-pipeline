@@ -178,6 +178,14 @@ serviceAccount:
   create: false
   annotations: {}
   name: ""
+
+# 🛠️ 核心修复：补齐公共模板需要的 HPA 默认配置
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
 """
                         writeFile file: "${env.appName}-chart/values.yaml", text: valuesYaml
 
