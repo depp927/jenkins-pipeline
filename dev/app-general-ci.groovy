@@ -31,6 +31,7 @@ pipeline {
         stage("Pull App Source") {
             steps {
                 script {
+                    env.BUILD_DIR = "builds/build_${env.BUILD_ID}"
                     def catalog = readYaml file: 'appmeta/apps.yaml'
                     def appNames = catalog.apps.keySet().collect { it.toString() }
                     
@@ -40,12 +41,12 @@ pipeline {
                     if (!appConfig) { error "应用 [${selectedApp}] 未在 apps.yaml 中定义！" }
                     env.gitURL = appConfig.repo_url
                     env.appName = selectedApp
-                }
-                
-                dir('source_code') {
+                    
+                    dir("${env.BUILD_DIR}/source_code") {
                     git url: env.gitURL,
                         credentialsId: env.gitCredentials,
                         branch: env.gitBranch
+                }
                 }
             }
         }
@@ -68,7 +69,7 @@ pipeline {
                     def appConfig = catalog.apps[env.appName]
                     
                     def gitCommit = ""
-                    dir('source_code') {
+                    dir("${env.BUILD_DIR}/source_code") {
                         gitCommit = sh(returnStdout: true, script: "git rev-parse --short=7 HEAD").trim()
                     }
                     
@@ -98,7 +99,7 @@ pipeline {
         stage("Build & Push Image") {
             steps {
                 script {
-                    dir('source_code') {
+                    dir("${env.BUILD_DIR}/source_code") {
                         withAWS(credentials: "${env.AWS_CRED_ID}", region: "${env.AWS_REGION}") {
                             sh """
                                 if [ ! -f Dockerfile ]; then
