@@ -73,13 +73,14 @@ pipeline {
                     }
                     
                     def todayDate = new Date().format('yyyyMMdd')
-                    env.appTag    = "${todayDate}_${gitCommit}_${env.BUILD_ID}"
-
+                    //env.appTag    = "${todayDate}_${gitCommit}_${env.BUILD_ID}"
+                    env.appTag    = "0.0.${env.BUILD_ID}-${todayDate}.${gitCommit}"
                     env.appImageRepo  = "${env.ECR_REGISTRY}/${env.appName}"
+                    // ⚠️ 注意：Docker 镜像和 Helm Chart 将统一共用这个符合 SemVer 的新 Tag
                     env.appImageURL   = "${env.appImageRepo}:${env.appTag}"
                     env.chartRepoName = "dev/${env.appName}-chart"
 
-                    env.appPort       = appConfig.port        ? appConfig.port.toString()        : "3000"
+                    env.appPort       = appConfig.port        ? appConfig.port.toString()        : "8080"
                     env.appReplicas   = appConfig.replicas    ? appConfig.replicas.toString()    : "1"
                     env.appIngress    = appConfig.ingress_host ?: ""
 
