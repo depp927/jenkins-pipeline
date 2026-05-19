@@ -14,7 +14,7 @@ pipeline {
         AWS_REGION          = "ap-east-1"
         ECR_BASE_DOMAIN     = "390402568976.dkr.ecr.ap-east-1.amazonaws.com"
         ECR_REGISTRY        = "390402568976.dkr.ecr.ap-east-1.amazonaws.com/dev"
-        AWS_CRED_ID         = "aws-credentials-id" // 统一维护你的 AWS 凭据 ID（如果是 EC2 IAM 角色模式，此变量留空字符串即可）
+        AWS_CRED_ID         = "aws-aksk" // 统一维护的AWS 凭据 ID（如果是 EC2 IAM 角色模式，此变量留空字符串）
 
         // 🛠️ 已经成功从 GitHub 迁移至 ECR OCI 的公共模板配置
         COMMON_CHART_NAME   = "dev/node-common-chart"
