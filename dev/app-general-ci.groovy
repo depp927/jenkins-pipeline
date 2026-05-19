@@ -21,7 +21,7 @@ pipeline {
         COMMON_CHART_VERSION= "0.1.0" // 填入你在本地笔记本上传的那个基础版本号
 
         gitBranch           = "main"
-        gitCredentials      = "depp927-githubtoken"
+        gitCredentials      = "depp927"
     }
 
     stages {
