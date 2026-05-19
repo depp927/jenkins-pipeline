@@ -173,6 +173,11 @@ service:
 ingress:
   enabled: ${env.appIngress ? 'true' : 'false'}
   host: "${env.appIngress}"
+
+serviceAccount:
+  create: false
+  annotations: {}
+  name: ""
 """
                         writeFile file: "${env.appName}-chart/values.yaml", text: valuesYaml
 
@@ -202,7 +207,7 @@ ingress:
                 def displayTag = env.appTag ?: "none"
                 currentBuild.displayName = "#${BUILD_NUMBER} [${displayApp}:${displayTag}]"
             }
-            cleanWs()
+            //cleanWs()
         }
         success {
             echo """
