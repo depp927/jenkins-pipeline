@@ -14,11 +14,11 @@ pipeline {
         AWS_REGION          = "ap-east-1"
         ECR_BASE_DOMAIN     = "390402568976.dkr.ecr.ap-east-1.amazonaws.com"
         ECR_REGISTRY        = "390402568976.dkr.ecr.ap-east-1.amazonaws.com/dev"
-        AWS_CRED_ID         = "aws-aksk" // 统一维护的AWS 凭据 ID（如果是 EC2 IAM 角色模式，此变量留空字符串）
+        AWS_CRED_ID         = "aws-aksk" // 统一维护的AWS 凭据 ID
 
-        // 🛠️ 已经成功从 GitHub 迁移至 ECR OCI 的公共模板配置
+        // 已经成功从 GitHub 迁移至 ECR OCI 的公共模板配置
         COMMON_CHART_NAME   = "dev/node-common-chart"
-        COMMON_CHART_VERSION= "0.1.0" // 填入你在本地笔记本上传的那个基础版本号
+        COMMON_CHART_VERSION= "0.1.0" 
 
         gitBranch           = "main"
         gitCredentials      = "depp927"
@@ -26,7 +26,7 @@ pipeline {
 
     stages {
         // ──────────────────────────────────────────
-        // Stage 1: 拉取应用源码
+        // Stage 1: 拉取应用源码（支持 Workspace 隔离留痕）
         // ──────────────────────────────────────────
         stage("Pull App Source") {
             steps {
@@ -43,29 +43,21 @@ pipeline {
                     env.appName = selectedApp
                     
                     dir("${env.BUILD_DIR}/source_code") {
-                    git url: env.gitURL,
-                        credentialsId: env.gitCredentials,
-                        branch: env.gitBranch
-                }
+                        git url: env.gitURL,
+                            credentialsId: env.gitCredentials,
+                            branch: env.gitBranch
+                    }
                 }
             }
         }
 
         // ──────────────────────────────────────────
-        // Stage 2: 解析元数据 & 动态生成复杂的 appTag
+        // Stage 2: 解析元数据 & 动态生成符合 SemVer 规范的 appTag
         // ──────────────────────────────────────────
         stage("Initialize & Dynamic Params") {
             steps {
                 script {
                     def catalog = readYaml file: 'appmeta/apps.yaml'
-                    def appNames = catalog.apps.keySet().collect { it.toString() }
-
-                    properties([
-                        parameters([
-                            choice(name: 'SELECT_APP_NAME', choices: appNames, description: '请选择应用名称')
-                        ])
-                    ])
-
                     def appConfig = catalog.apps[env.appName]
                     
                     def gitCommit = ""
@@ -74,10 +66,9 @@ pipeline {
                     }
                     
                     def todayDate = new Date().format('yyyyMMdd')
-                    //env.appTag    = "${todayDate}_${gitCommit}_${env.BUILD_ID}"
+                    // 完美兼容 Docker 和 Helm 规范的语义化版本号
                     env.appTag    = "0.0.${env.BUILD_ID}-${todayDate}.${gitCommit}"
                     env.appImageRepo  = "${env.ECR_REGISTRY}/${env.appName}"
-                    // ⚠️ 注意：Docker 镜像和 Helm Chart 将统一共用这个符合 SemVer 的新 Tag
                     env.appImageURL   = "${env.appImageRepo}:${env.appTag}"
                     env.chartRepoName = "dev/${env.appName}-chart"
 
@@ -88,7 +79,6 @@ pipeline {
                     echo "=== 🚀 规范化元数据已生成 ==="
                     echo "生成的新 Tag : ${env.appTag}"
                     echo "目标容器镜像 : ${env.appImageURL}"
-                    echo "目标 Helm 包 : oci://${env.ECR_BASE_DOMAIN}/${env.chartRepoName} Tag: ${env.appTag}"
                 }
             }
         }
@@ -103,7 +93,7 @@ pipeline {
                         withAWS(credentials: "${env.AWS_CRED_ID}", region: "${env.AWS_REGION}") {
                             sh """
                                 if [ ! -f Dockerfile ]; then
-                                    echo "ERROR: Dockerfile not found in source_code directory!"
+                                    echo "ERROR: Dockerfile not found!"
                                     exit 1
                                 fi
 
@@ -121,31 +111,26 @@ pipeline {
         }
 
         // ──────────────────────────────────────────
-        // Stage 4: 渲染、打包并推送应用专属 Helm Chart（已重构为 ECR 互通模式）
+        // Stage 4: 渲染、打包并推送应用专属 Helm Chart（解决空指针问题）
         // ──────────────────────────────────────────
         stage("Package & Push Helm Chart") {
             steps {
                 script {
-                    // 统一在一个 AWS 权限块内处理拉取、修改与推送
                     withAWS(credentials: "${env.AWS_CRED_ID}", region: "${env.AWS_REGION}") {
                         sh """
-                            # 1. 登录 Helm OCI 注册表 (使用根域名)
                             aws ecr get-login-password --region ${env.AWS_REGION} \
                                 | helm registry login --username AWS --password-stdin ${env.ECR_BASE_DOMAIN}
 
-                            # 2. 从 ECR OCI 拉取由你本地上传的公共基础模板，并直接就地解压成文件夹 (--untar)
                             rm -rf common_chart_download && mkdir common_chart_download
                             cd common_chart_download
                             helm pull oci://${env.ECR_BASE_DOMAIN}/${env.COMMON_CHART_NAME} --version "${env.COMMON_CHART_VERSION}" --untar
                             
-                            # 3. 将解压出来的通用基础目录，复制到外层并改名成专属应用 Chart 目录
                             cd ..
                             rm -rf ${env.appName}-chart
                             cp -r common_chart_download/node-common-chart ${env.appName}-chart
                             rm -rf common_chart_download
                         """
 
-                        // 4-3. 覆写应用专属的 Chart.yaml 描述文件
                         def chartYaml = """apiVersion: v2
 name: ${env.appName}-chart
 description: Helm chart for ${env.appName} (dynamically generated by Jenkins from ECR common template)
@@ -155,7 +140,6 @@ appVersion: "${env.appTag}"
 """
                         writeFile file: "${env.appName}-chart/Chart.yaml", text: chartYaml
 
-                        // 4-4. 覆写应用专属的 values.yaml 变量配置
                         def valuesYaml = """# Auto-generated by Jenkins CI — DO NOT EDIT MANUALLY
 # Target App: ${env.appName}
 
@@ -179,7 +163,6 @@ serviceAccount:
   annotations: {}
   name: ""
 
-# 🛠️ 核心修复：补齐公共模板需要的 HPA 默认配置
 autoscaling:
   enabled: true
   minReplicas: 1
@@ -189,18 +172,56 @@ autoscaling:
 """
                         writeFile file: "${env.appName}-chart/values.yaml", text: valuesYaml
 
-                        // 4-5. 维护专属应用的 ECR 仓库并执行最终推送
                         sh """
-                            # 1. 检查并确保 ECR 对应应用的独立 chart 仓库存在（如 dev/my-app-chart）
                             aws ecr describe-repositories --repository-names ${env.chartRepoName} --region ${env.AWS_REGION} 2>/dev/null \
                             || aws ecr create-repository --repository-name ${env.chartRepoName} --region ${env.AWS_REGION}
 
-                            # 2. 语法校验与本地构建打包
                             helm lint ${env.appName}-chart
                             helm package ${env.appName}-chart --destination .
 
-                            # 3. 推送到该应用在 ECR 的专属私有 Chart 仓库中
                             helm push ${env.appName}-chart-${env.appTag}.tgz oci://${env.ECR_BASE_DOMAIN}/dev
+                        """
+                    }
+                }
+            }
+        }
+
+        // ──────────────────────────────────────────
+        // Stage 5: 自动改写 GitOps 仓库文件，触发 ArgoCD 部署
+        // ──────────────────────────────────────────
+        stage("Trigger GitOps Deployment") {
+            steps {
+                script {
+                    dir('gitops_repo') {
+                        // 1. 克隆或拉取 GitOps 控制中心仓库
+                        git url: 'https://github.com/你的组织/k8s-gitops-manifests.git',
+                            credentialsId: env.gitCredentials,
+                            branch: 'main'
+                        
+                        def manifestPath = "apps/base/${env.appName}.yaml"
+                        
+                        if (!fileExists(manifestPath)) {
+                            error "GitOps 仓库中未找到应用的 Application 声明文件: ${manifestPath}，请先建立基础清单！"
+                        }
+
+                        // 2. 动态修改对应的 Application 声明文件中的版本号 (使用更安全、精准的匹配行正则替换)
+                        sh """
+                            # 精准匹配：定位到对应 chart 下一行的 targetRevision 进行替换，防范暴力全局替换
+                            sed -i '/chart: '"${env.appName}"'-chart/{n;s/targetRevision:.*/targetRevision: '"${env.appTag}"'/}' ${manifestPath}
+                            
+                            # 3. 配置本地 Git 身份
+                            git config user.name "Jenkins CI"
+                            git config user.email "jenkins@yourcompany.com"
+                            
+                            # 4. 提交
+                            git add ${manifestPath}
+                            git commit -m "image: auto update ${env.appName} to ${env.appTag} [skip ci]" || true
+                            
+                            # 🛠️ 核心优化：在 push 之前先拉取合并，防御多 Job 并发构建引发的 push 冲突
+                            git pull --rebase origin main
+                            
+                            # 5. 推送到 GitOps 仓库触发 ArgoCD 监听
+                            git push origin main
                         """
                     }
                 }
@@ -215,16 +236,16 @@ autoscaling:
                 def displayTag = env.appTag ?: "none"
                 currentBuild.displayName = "#${BUILD_NUMBER} [${displayApp}:${displayTag}]"
             }
-            //cleanWs()
+            // 保持注释掉 cleanWs()，让本地 builds/ 目录持续留痕记录
         }
         success {
             echo """
 ======================================================================
-  🎉 Pipeline 成功完成！公共模板已完全切为 ECR OCI 互通。
+  🎉 GitOps 全链路自动化交付成功完成！
   应用名称 : ${env.appName}
   统一 Tag : ${env.appTag}
   容器镜像 : ${env.appImageURL}
-  Helm Chart: oci://${env.ECR_BASE_DOMAIN}/${env.chartRepoName} Tag: ${env.appTag}
+  ArgoCD 状态: 变动已推送至 GitOps 仓库，正在集群内进行滚动更新。
 ======================================================================
 """
         }
