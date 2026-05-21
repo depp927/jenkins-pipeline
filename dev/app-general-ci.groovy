@@ -223,7 +223,7 @@ autoscaling:
                                 
                                 # 临时重写远程仓库的 URL，把令牌（Token）动态塞进去，确保免密 Push/Pull 成功
                                 # 这样写可以完美打通 github.com 的认证
-                                git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/你的组织/k8s-gitops-manifests.git
+                                git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/depp927/eks-gitops-manifests.git
                                 
                                 # 提交修改
                                 git add ${manifestPath}
