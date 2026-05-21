@@ -207,8 +207,7 @@ autoscaling:
                         // 2. 动态修改对应的 Application 声明文件中的版本号 (使用更安全、精准的匹配行正则替换)
                         sh """
                             # 精准匹配：定位到对应 chart 下一行的 targetRevision 进行替换，防范暴力全局替换
-                            sed -i '/chart: '"${env.appName}"'-chart/{n;s/targetRevision:.*/targetRevision: '"${env.appTag}"'/}' ${manifestPath}
-                            
+                            sed -i "/chart: ${env.appName}-chart/{n;s/targetRevision:.*/targetRevision: ${env.appTag}/}" apps/base/${env.appName}.yaml
                             # 3. 配置本地 Git 身份
                             git config user.name "Jenkins CI"
                             git config user.email "jenkins@yourcompany.com"
