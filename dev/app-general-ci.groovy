@@ -194,7 +194,7 @@ autoscaling:
                 script {
                     dir('gitops_repo') {
                         // 1. 克隆或拉取 GitOps 控制中心仓库
-                        git url: 'https://github.com/你的组织/k8s-gitops-manifests.git',
+                        git url: 'https://github.com/depp927/eks-gitops-manifests.git',
                             credentialsId: env.gitCredentials,
                             branch: 'main'
                         
