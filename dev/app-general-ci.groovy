@@ -187,41 +187,53 @@ autoscaling:
         }
 
         // ──────────────────────────────────────────
-        // Stage 5: 自动改写 GitOps 仓库文件，触发 ArgoCD 部署
+        // Stage 5: 自动改写 GitOps 仓库文件，触发 ArgoCD 部署（修复版）
         // ──────────────────────────────────────────
         stage("Trigger GitOps Deployment") {
             steps {
                 script {
                     dir('gitops_repo') {
-                        // 1. 克隆或拉取 GitOps 控制中心仓库
-                        git url: 'https://github.com/depp927/eks-gitops-manifests.git',
+                        // 1. 克隆 GitOps 控制中心仓库
+                        git url: 'https://github.com/你的组织/k8s-gitops-manifests.git',
                             credentialsId: env.gitCredentials,
                             branch: 'main'
                         
                         def manifestPath = "apps/base/${env.appName}.yaml"
                         
                         if (!fileExists(manifestPath)) {
-                            error "GitOps 仓库中未找到应用的 Application 声明文件: ${manifestPath}，请先建立基础清单！"
+                            error "GitOps 仓库中未找到应用的 Application 声明文件: ${manifestPath}"
                         }
 
-                        // 2. 动态修改对应的 Application 声明文件中的版本号 (使用更安全、精准的匹配行正则替换)
-                        sh """
-                            # 精准匹配：定位到对应 chart 下一行的 targetRevision 进行替换，防范暴力全局替换
-                            sed -i "/chart: ${env.appName}-chart/{n;s/targetRevision:.*/targetRevision: ${env.appTag}/}" apps/base/${env.appName}.yaml
-                            # 3. 配置本地 Git 身份
-                            git config user.name "Jenkins CI"
-                            git config user.email "jenkins@yourcompany.com"
+                        // 2. 借助 withCredentials 临时把你的 Git 凭据解密为环境变量，供 sh 块内的 git push/pull 授权使用
+                        // 这里假设你的 'depp927' 凭据在 Jenkins 里是 "Username with password" 或 "Secret text" 类型
+                        // 如果是 Token，usernameVariable 可以随便起名，passwordVariable 存放真正的 Token
+                        withCredentials([usernamePassword(
+                            credentialsId: "${env.gitCredentials}", 
+                            usernameVariable: 'GIT_USER', 
+                            passwordVariable: 'GIT_TOKEN'
+                        )]) {
                             
-                            # 4. 提交
-                            git add ${manifestPath}
-                            git commit -m "image: auto update ${env.appName} to ${env.appTag} [skip ci]" || true
-                            
-                            # 🛠️ 核心优化：在 push 之前先拉取合并，防御多 Job 并发构建引发的 push 冲突
-                            git pull --rebase origin main
-                            
-                            # 5. 推送到 GitOps 仓库触发 ArgoCD 监听
-                            git push origin main
-                        """
+                            sh """
+                                # 🛠️ 修复点 1：加双引号，确保 sed 命令在 Shell 中被正确精准执行
+                                sed -i "/chart: ${env.appName}-chart/{n;s/targetRevision:.*/targetRevision: ${env.appTag}/}" ${manifestPath}
+                                
+                                # 配置本地 Git 审计身份
+                                git config user.name "Jenkins CI"
+                                git config user.email "jenkins@yourcompany.com"
+                                
+                                # 临时重写远程仓库的 URL，把令牌（Token）动态塞进去，确保免密 Push/Pull 成功
+                                # 这样写可以完美打通 github.com 的认证
+                                git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/你的组织/k8s-gitops-manifests.git
+                                
+                                # 提交修改
+                                git add ${manifestPath}
+                                git commit -m "image: auto update ${env.appName} to ${env.appTag} [skip ci]" || echo "No changes to commit"
+                                
+                                # 🛠️ 修复点 2：此时有了 Token 注入，pull --rebase 和 push 就能畅通无阻了
+                                git pull --rebase origin main
+                                git push origin main
+                            """
+                        }
                     }
                 }
             }
