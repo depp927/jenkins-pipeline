@@ -215,11 +215,10 @@ autoscaling:
                             
                             sh """
                                 # 🛠️ 修复点 1：加双引号，确保 sed 命令在 Shell 中被正确精准执行
-                                sed -i "/chart: ${env.appName}-chart/{n;s/targetRevision:.*/targetRevision: ${env.appTag}/}" ${manifestPath}
-                                
+                                sed -i "s/targetRevision:.*/targetRevision: ${env.appTag}/g" ${manifestPath}
+                                cat ${manifestPath}
                                 # 配置本地 Git 审计身份
-                                git config user.name "Jenkins CI"
-                                git config user.email "jenkins@yourcompany.com"
+                                git config user.name "depp927"
                                 
                                 # 临时重写远程仓库的 URL，把令牌（Token）动态塞进去，确保免密 Push/Pull 成功
                                 # 这样写可以完美打通 github.com 的认证
